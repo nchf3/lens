@@ -367,7 +367,7 @@ impl State {
         self.light.update(&self.queue, dt);
     }
 
-    fn render(&mut self, color: &wgpu::Color) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -386,7 +386,12 @@ impl State {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(*color),
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1,
+                                g: 0.2,
+                                b: 0.3,
+                                a: 1.0,
+                            }),
                             store: true,
                         },
                     },
@@ -436,13 +441,6 @@ pub fn lens_run() {
     let mut state = pollster::block_on(State::new(&window));
     let mut last_render_time = std::time::Instant::now();
 
-    let color_to_print = wgpu::Color {
-        r: 0.1,
-        g: 0.2,
-        b: 0.3,
-        a: 1.0,
-    };
-
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
@@ -482,7 +480,7 @@ pub fn lens_run() {
                 let dt = now - last_render_time;
                 last_render_time = now;
                 state.update(dt);
-                match state.render(&color_to_print) {
+                match state.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
