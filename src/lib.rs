@@ -15,30 +15,6 @@ use winit::{
     window::WindowBuilder,
 };
 
-// We need this for Rust to store our data correctly for the shaders
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_position: [f32; 4],
-    // We can't use cgmath with bytemuck directly so we'll have
-    // to convert the Matrix4 into a 4x4 f32 array
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        Self {
-            view_position: [0.0; 4],
-            view_proj: cgmath::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
-    }
-}
-
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
 #[repr(C)]
@@ -183,11 +159,6 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     camera: camera::Camera,
-    projection: camera::Projection,
-    camera_controller: camera::CameraController,
-    camera_uniform: CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
@@ -237,44 +208,6 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-        let projection =
-            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
-        let camera_controller = camera::CameraController::new(4.0, 0.4);
-
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("camera_bind_group_layout"),
-            });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("camera_bind_group"),
-        });
-
         const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
@@ -312,6 +245,9 @@ impl State {
         let obj_model =
             model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
 
+        // create the camera
+        let camera = camera::Camera::new(&device, &config);
+
         // create light bind_group_layout and bind group
         let light = light::Light::new(&device);
 
@@ -320,7 +256,7 @@ impl State {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &obj_model.bind_group_layout,
-                    &camera_bind_group_layout,
+                    &camera.bind_group_layout,
                     &light.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -344,7 +280,7 @@ impl State {
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &light.bind_group_layout],
+                bind_group_layouts: &[&camera.bind_group_layout, &light.bind_group_layout],
                 push_constant_ranges: &[],
             });
             let shader = wgpu::ShaderModuleDescriptor {
@@ -368,11 +304,6 @@ impl State {
             config,
             size,
             camera,
-            projection,
-            camera_controller,
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
             render_pipeline,
             instances,
             instance_buffer,
@@ -386,7 +317,9 @@ impl State {
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.projection.resize(new_size.width, new_size.height);
+            self.camera
+                .projection
+                .resize(new_size.width, new_size.height);
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
@@ -402,9 +335,9 @@ impl State {
                 virtual_keycode: Some(key),
                 state,
                 ..
-            }) => self.camera_controller.process_keyboard(*key, *state),
+            }) => self.camera.camera_controller.process_keyboard(*key, *state),
             DeviceEvent::MouseWheel { delta, .. } => {
-                self.camera_controller.process_scroll(delta);
+                self.camera.camera_controller.process_scroll(delta);
                 true
             }
             DeviceEvent::Button {
@@ -416,7 +349,9 @@ impl State {
             }
             DeviceEvent::MouseMotion { delta } => {
                 if self.mouse_pressed {
-                    self.camera_controller.process_mouse(delta.0, delta.1);
+                    self.camera
+                        .camera_controller
+                        .process_mouse(delta.0, delta.1);
                 }
                 true
             }
@@ -426,14 +361,7 @@ impl State {
 
     fn update(&mut self, dt: std::time::Duration) {
         // update camera position
-        self.camera_controller.update_camera(&mut self.camera, dt);
-        self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection);
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
-        );
+        self.camera.update(&self.queue, dt);
 
         // Update the light
         self.light.update(&self.queue, dt);
@@ -480,7 +408,7 @@ impl State {
             render_pass.set_pipeline(&self.light_render_pipeline);
             render_pass.draw_light_model(
                 &self.obj_model,
-                &self.camera_bind_group,
+                &self.camera.bind_group,
                 &self.light.bind_group,
             );
             // draw instanced model
@@ -488,7 +416,7 @@ impl State {
             render_pass.draw_model_instanced(
                 &self.obj_model,
                 0..self.instances.len() as u32,
-                &self.camera_bind_group,
+                &self.camera.bind_group,
                 &self.light.bind_group,
             );
         }
