@@ -1,7 +1,7 @@
 mod camera;
+mod light;
 mod model;
 mod texture;
-mod light;
 
 use crate::model::{DrawLight, DrawModel};
 use cgmath::prelude::*;
@@ -193,9 +193,7 @@ struct State {
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     obj_model: model::Model,
-    light_uniform: light::LightUniform,
-    light_buffer: wgpu::Buffer,
-    light_bind_group: wgpu::BindGroup,
+    light: light::Light,
     light_render_pipeline: wgpu::RenderPipeline,
     mouse_pressed: bool,
 }
@@ -349,37 +347,8 @@ impl State {
         )
         .unwrap();
 
-        let light_uniform = light::LightUniform::new();
-        // We'll want to update our lights position, so we use COPY_DST
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Light VB"),
-            contents: bytemuck::cast_slice(&[light_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let light_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: None,
-            });
-
-        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &light_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: light_buffer.as_entire_binding(),
-            }],
-            label: None,
-        });
+        // create light bind_group_layout and bind group
+        let light = light::Light::new(&device);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -387,7 +356,7 @@ impl State {
                 bind_group_layouts: &[
                     &texture_bind_group_layout,
                     &camera_bind_group_layout,
-                    &light_bind_group_layout,
+                    &light.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -410,7 +379,7 @@ impl State {
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                bind_group_layouts: &[&camera_bind_group_layout, &light.bind_group_layout],
                 push_constant_ranges: &[],
             });
             let shader = wgpu::ShaderModuleDescriptor {
@@ -444,9 +413,7 @@ impl State {
             instance_buffer,
             depth_texture,
             obj_model,
-            light_uniform,
-            light_buffer,
-            light_bind_group,
+            light,
             light_render_pipeline,
             mouse_pressed: false,
         }
@@ -504,17 +471,7 @@ impl State {
         );
 
         // Update the light
-        let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
-        self.light_uniform.position = (cgmath::Quaternion::from_axis_angle(
-            (0.0, 1.0, 0.0).into(),
-            cgmath::Deg(60.0 * dt.as_secs_f32()),
-        ) * old_position)
-            .into();
-        self.queue.write_buffer(
-            &self.light_buffer,
-            0,
-            bytemuck::cast_slice(&[self.light_uniform]),
-        );
+        self.light.update(&self.queue, dt);
     }
 
     fn render(&mut self, color: &wgpu::Color) -> Result<(), wgpu::SurfaceError> {
@@ -559,7 +516,7 @@ impl State {
             render_pass.draw_light_model(
                 &self.obj_model,
                 &self.camera_bind_group,
-                &self.light_bind_group,
+                &self.light.bind_group,
             );
             // draw instanced model
             render_pass.set_pipeline(&self.render_pipeline);
@@ -567,7 +524,7 @@ impl State {
                 &self.obj_model,
                 0..self.instances.len() as u32,
                 &self.camera_bind_group,
-                &self.light_bind_group,
+                &self.light.bind_group,
             );
         }
         // submit will accept anything that implements IntoIter
