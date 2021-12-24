@@ -503,12 +503,3 @@ pub fn lens_run() {
 pub fn hello_from_lens() {
     println!("Hello from lens.");
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
