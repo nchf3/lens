@@ -237,36 +237,6 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler {
-                            // This is only for TextureSampleType::Depth
-                            comparison: false,
-                            // This should be true if the sample_type of the texture is:
-                            //     TextureSampleType::Float { filterable: true }
-                            // Otherwise you'll get an error.
-                            filtering: true,
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
-
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
         let projection =
             camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
@@ -339,13 +309,8 @@ impl State {
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let obj_model = model::Model::load(
-            &device,
-            &queue,
-            &texture_bind_group_layout,
-            res_dir.join("cube").join("cube.obj"),
-        )
-        .unwrap();
+        let obj_model =
+            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
 
         // create light bind_group_layout and bind group
         let light = light::Light::new(&device);
@@ -354,7 +319,7 @@ impl State {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &texture_bind_group_layout,
+                    &obj_model.bind_group_layout,
                     &camera_bind_group_layout,
                     &light.bind_group_layout,
                 ],

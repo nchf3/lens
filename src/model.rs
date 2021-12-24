@@ -46,6 +46,7 @@ impl Vertex for ModelVertex {
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
+    pub bind_group_layout: wgpu::BindGroupLayout,
 }
 
 pub struct Material {
@@ -66,7 +67,6 @@ impl Model {
     pub fn load<P: AsRef<Path>>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
         path: P,
     ) -> Result<Self, ()> {
         let (obj_models, obj_materials) = tobj::load_obj(
@@ -84,6 +84,35 @@ impl Model {
         // We're assuming that the texture files are stored with the obj file
         let containing_folder = path.as_ref().parent().unwrap();
 
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler {
+                        // This is only for TextureSampleType::Depth
+                        comparison: false,
+                        // This should be true if the sample_type of the texture is:
+                        //     TextureSampleType::Float { filterable: true }
+                        // Otherwise you'll get an error.
+                        filtering: true,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        });
+
         let mut materials = Vec::new();
         for mat in obj_materials {
             let diffuse_path = mat.diffuse_texture;
@@ -92,7 +121,7 @@ impl Model {
                     .unwrap();
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout,
+                layout: &bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -152,7 +181,11 @@ impl Model {
             });
         }
 
-        Ok(Self { meshes, materials })
+        Ok(Self {
+            meshes,
+            materials,
+            bind_group_layout,
+        })
     }
 }
 
