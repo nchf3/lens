@@ -251,18 +251,17 @@ impl Scene {
         // create light bind_group_layout and bind group
         let light = light::Light::new(&device);
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &obj_model.bind_group_layout,
-                    &camera.bind_group_layout,
-                    &light.bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
         let render_pipeline = {
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &obj_model.bind_group_layout,
+                        &camera.bind_group_layout,
+                        &light.bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
             let shader = wgpu::ShaderModuleDescriptor {
                 label: Some("Normal Shader"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
