@@ -3,7 +3,7 @@ mod light;
 mod model;
 mod texture;
 
-use crate::model::{DrawLight, DrawModel};
+use crate::model::DrawModel;
 use cgmath::prelude::*;
 use model::Vertex;
 use wgpu::util::DeviceExt;
@@ -151,6 +151,23 @@ fn create_render_pipeline(
         },
     })
 }
+
+// struct ModelRenderer {
+//     model: model::Model,
+//     bind_groups: &[wgpu::BindGroup],
+//     render_pipeline: wgpu::RenderPipeline,
+// }
+
+// struct Scene {
+//     surface: wgpu::Surface,
+//     device: wgpu::Device,
+//     queue: wgpu::Queue,
+//     config: wgpu::SurfaceConfiguration,
+//     size: winit::dpi::PhysicalSize<u32>,
+//     camera: camera::Camera,
+//     light: light::Light,
+//     model_render: &[ModelRenderer],
+// }
 
 struct Scene {
     surface: wgpu::Surface,
@@ -376,6 +393,11 @@ impl Scene {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
+        // create bind_groups for each model to render
+        let bind_groups = [&self.camera.bind_group, &self.light.bind_group];
+        let brick_bind_groups = [&self.camera.bind_group, &self.light.bind_group];
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -410,19 +432,14 @@ impl Scene {
 
             // draw the light
             render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_light_model(
-                &self.obj_model,
-                &self.camera.bind_group,
-                &self.light.bind_group,
-            );
+            render_pass.draw_model(&self.obj_model, &bind_groups);
             // draw instanced model
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw_model_instanced(
-                &self.obj_model,
-                0..self.instances.len() as u32,
-                &self.camera.bind_group,
-                &self.light.bind_group,
-            );
+            // render_pass.set_pipeline(&self.render_pipeline);
+            // render_pass.draw_model_instanced(
+            //     &self.obj_model,
+            //     0..self.instances.len() as u32,
+            //     &brick_bind_groups,
+            // );
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
