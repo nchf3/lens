@@ -218,11 +218,11 @@ impl CameraUniform {
 }
 
 pub struct Camera {
-    pub camera_parameters: CameraParameters,
+    camera_parameters: CameraParameters,
     pub projection: Projection,
     pub camera_controller: CameraController,
-    pub camera_uniform: CameraUniform,
-    pub camera_buffer: wgpu::Buffer,
+    camera_uniform: CameraUniform,
+    camera_buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub bind_group: wgpu::BindGroup,
 }
