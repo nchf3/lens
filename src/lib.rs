@@ -273,7 +273,7 @@ impl Scene {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Render Pipeline Layout"),
                     bind_group_layouts: &[
-                        &obj_model.bind_group_layout,
+                        &obj_model.material_layout,
                         &camera.bind_group_layout,
                         &light.bind_group_layout,
                     ],
@@ -432,14 +432,15 @@ impl Scene {
 
             // draw the light
             render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_model(&self.obj_model, &bind_groups);
+            render_pass.draw_mesh(&self.obj_model.meshes.first().unwrap(), &bind_groups);
+
             // draw instanced model
-            // render_pass.set_pipeline(&self.render_pipeline);
-            // render_pass.draw_model_instanced(
-            //     &self.obj_model,
-            //     0..self.instances.len() as u32,
-            //     &brick_bind_groups,
-            // );
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw_model_instanced(
+                &self.obj_model,
+                0..self.instances.len() as u32,
+                &brick_bind_groups,
+            );
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));

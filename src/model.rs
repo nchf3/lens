@@ -46,7 +46,7 @@ impl Vertex for ModelVertex {
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub material_layout: wgpu::BindGroupLayout,
 }
 
 pub struct Material {
@@ -84,7 +84,7 @@ impl Model {
         // We're assuming that the texture files are stored with the obj file
         let containing_folder = path.as_ref().parent().unwrap();
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -110,7 +110,7 @@ impl Model {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("material_bind_group_layout"),
         });
 
         let mut materials = Vec::new();
@@ -121,7 +121,7 @@ impl Model {
                     .unwrap();
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &bind_group_layout,
+                layout: &material_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -184,101 +184,10 @@ impl Model {
         Ok(Self {
             meshes,
             materials,
-            bind_group_layout,
+            material_layout,
         })
     }
 }
-
-// model.rs
-// pub trait DrawModel<'a> {
-//     fn draw_model(
-//         &mut self,
-//         model: &'a Model,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_model_instanced(
-//         &mut self,
-//         model: &'a Model,
-//         instances: Range<u32>,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_mesh(
-//         &mut self,
-//         mesh: &'a Mesh,
-//         material: &'a Material,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_mesh_instanced(
-//         &mut self,
-//         mesh: &'a Mesh,
-//         material: &'a Material,
-//         instances: Range<u32>,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-// }
-
-// impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
-// where
-//     'b: 'a,
-// {
-//     fn draw_model(
-//         &mut self,
-//         model: &'b Model,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.draw_model_instanced(model, 0..1, camera_bind_group, light_bind_group);
-//     }
-
-//     fn draw_model_instanced(
-//         &mut self,
-//         model: &'b Model,
-//         instances: Range<u32>,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         for mesh in &model.meshes {
-//             let material = &model.materials[mesh.material];
-//             self.draw_mesh_instanced(
-//                 mesh,
-//                 material,
-//                 instances.clone(),
-//                 camera_bind_group,
-//                 light_bind_group,
-//             );
-//         }
-//     }
-
-//     fn draw_mesh(
-//         &mut self,
-//         mesh: &'b Mesh,
-//         material: &'b Material,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group, light_bind_group);
-//     }
-
-//     fn draw_mesh_instanced(
-//         &mut self,
-//         mesh: &'b Mesh,
-//         material: &'b Material,
-//         instances: Range<u32>,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-//         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-//         self.set_bind_group(0, &material.bind_group, &[]);
-//         self.set_bind_group(1, camera_bind_group, &[]);
-//         self.set_bind_group(2, light_bind_group, &[]);
-//         self.draw_indexed(0..mesh.num_elements, 0, instances);
-//     }
-// }
 
 // model.rs
 pub trait DrawModel<'a> {
@@ -286,6 +195,14 @@ pub trait DrawModel<'a> {
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'a Mesh,
+        instances: Range<u32>,
+        bind_groups: &'a [&'a wgpu::BindGroup],
+    );
+
+    fn draw_mesh_with_material_instanced(
+        &mut self,
+        mesh: &'a Mesh,
+        material_bind_group: &'a wgpu::BindGroup,
         instances: Range<u32>,
         bind_groups: &'a [&'a wgpu::BindGroup],
     );
@@ -315,8 +232,30 @@ where
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
         for mesh in &model.meshes {
-            self.draw_mesh_instanced(mesh, instances.clone(), bind_groups);
+            let material_bind_group = &model.materials[mesh.material].bind_group;
+            self.draw_mesh_with_material_instanced(
+                mesh,
+                material_bind_group,
+                instances.clone(),
+                bind_groups,
+            );
         }
+    }
+
+    fn draw_mesh_with_material_instanced(
+        &mut self,
+        mesh: &'b Mesh,
+        material_bind_group: &'b wgpu::BindGroup,
+        instances: Range<u32>,
+        bind_groups: &'b [&'b wgpu::BindGroup],
+    ) {
+        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        self.set_bind_group(0, material_bind_group, &[]);
+        bind_groups.iter().enumerate().for_each(|(index, group)| {
+            self.set_bind_group(index as u32 + 1, *group, &[]);
+        });
+        self.draw_indexed(0..mesh.num_elements, 0, instances);
     }
 
     // draw each mesh in a model
