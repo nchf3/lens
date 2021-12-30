@@ -111,18 +111,22 @@ pub struct Model {
     pub material_layout: wgpu::BindGroupLayout,
 }
 
+pub struct Mesh {
+    pub geometry: Geometry,
+    pub material: usize,
+}
+
 pub struct Material {
     pub name: String,
     pub diffuse_texture: texture::Texture,
     pub bind_group: wgpu::BindGroup,
 }
 
-pub struct Mesh {
+pub struct Geometry {
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_elements: u32,
-    pub material: usize,
 }
 
 impl Model {
@@ -234,11 +238,15 @@ impl Model {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-            meshes.push(Mesh {
+            let geometry = Geometry {
                 name: m.name,
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,
+            };
+
+            meshes.push(Mesh {
+                geometry: geometry,
                 material: m.mesh.material_id.unwrap_or(0),
             });
         }
@@ -470,8 +478,11 @@ where
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
         // set vertex & index buffer
-        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        self.set_vertex_buffer(0, mesh.geometry.vertex_buffer.slice(..));
+        self.set_index_buffer(
+            mesh.geometry.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint32,
+        );
 
         // set material bind group
         let mut offset = 0;
@@ -486,6 +497,6 @@ where
         });
 
         // draw the mesh
-        self.draw_indexed(0..mesh.num_elements, 0, instances);
+        self.draw_indexed(0..mesh.geometry.num_elements, 0, instances);
     }
 }
