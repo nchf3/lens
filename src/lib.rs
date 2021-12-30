@@ -5,7 +5,7 @@ mod texture;
 
 use crate::model::DrawModel;
 use cgmath::prelude::*;
-use model::Vertex;
+use model::{InstanceRaw, ModelRenderer};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalPosition,
@@ -16,68 +16,6 @@ use winit::{
 };
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw {
-    model: [[f32; 4]; 4],
-    normal: [[f32; 3]; 3],
-}
-
-impl InstanceRaw {
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We'll have to reassemble the mat4 in
-                // the shader.
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
-                    shader_location: 10,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
-                    shader_location: 11,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
 
 struct Instance {
     position: cgmath::Vector3<f32>,
@@ -95,80 +33,6 @@ impl Instance {
     }
 }
 
-fn create_render_pipeline(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    color_format: wgpu::TextureFormat,
-    depth_format: Option<wgpu::TextureFormat>,
-    vertex_layouts: &[wgpu::VertexBufferLayout],
-    shader: wgpu::ShaderModuleDescriptor,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(&shader);
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Render Pipeline"),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: vertex_layouts,
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
-            targets: &[wgpu::ColorTargetState {
-                format: color_format,
-                blend: Some(wgpu::BlendState {
-                    alpha: wgpu::BlendComponent::REPLACE,
-                    color: wgpu::BlendComponent::REPLACE,
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            }],
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
-            // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-            polygon_mode: wgpu::PolygonMode::Fill,
-            // Requires Features::DEPTH_CLAMPING
-            clamp_depth: false,
-            // Requires Features::CONSERVATIVE_RASTERIZATION
-            conservative: false,
-        },
-        depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
-            format,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-    })
-}
-
-// struct ModelRenderer {
-//     model: model::Model,
-//     bind_groups: &[wgpu::BindGroup],
-//     render_pipeline: wgpu::RenderPipeline,
-// }
-
-// struct Scene {
-//     surface: wgpu::Surface,
-//     device: wgpu::Device,
-//     queue: wgpu::Queue,
-//     config: wgpu::SurfaceConfiguration,
-//     size: winit::dpi::PhysicalSize<u32>,
-//     camera: camera::Camera,
-//     light: light::Light,
-//     model_render: &[ModelRenderer],
-// }
-
 struct Scene {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -176,19 +40,15 @@ struct Scene {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     camera: camera::Camera,
-    render_pipeline: wgpu::RenderPipeline,
-    instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
-    obj_model: model::Model,
     light: light::Light,
-    light_render_pipeline: wgpu::RenderPipeline,
     mouse_pressed: bool,
+    model_renderers: Vec<ModelRenderer>,
 }
 
 impl Scene {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> Self {
+    async fn new(window: &Window) -> Scene {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -249,18 +109,10 @@ impl Scene {
             .collect::<Vec<_>>();
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let instance_len = instance_data.len();
 
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
-
-        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let obj_model =
-            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
 
         // create the camera
         let camera = camera::Camera::new(&device, &config);
@@ -268,50 +120,45 @@ impl Scene {
         // create light bind_group_layout and bind group
         let light = light::Light::new(&device);
 
-        let render_pipeline = {
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &obj_model.bind_group_layout,
-                        &camera.bind_group_layout,
-                        &light.bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-            };
-            create_render_pipeline(
-                &device,
-                &render_pipeline_layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[model::ModelVertex::desc(), InstanceRaw::desc()],
-                shader,
-            )
+        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        let obj_model =
+            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+        let obj_renderer = ModelRenderer::new_renderer(
+            obj_model,
+            &device,
+            &config,
+            &camera,
+            &light,
+            include_str!("shader.wgsl").into(),
+            Some(instance_data),
+            Some(instance_len),
+        );
+
+        let mut light_obj =
+            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+        let light_model = model::Model {
+            meshes: vec![model::Mesh {
+                geometry: light_obj.meshes.pop().unwrap().geometry,
+                material_id: None,
+            }],
+            materials: None,
+            material_layout: None,
         };
 
-        let light_render_pipeline = {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[&camera.bind_group_layout, &light.bind_group_layout],
-                push_constant_ranges: &[],
-            });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Light Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
-            };
-            create_render_pipeline(
-                &device,
-                &layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[model::ModelVertex::desc()],
-                shader,
-            )
-        };
+        let light_renderer = ModelRenderer::new_renderer(
+            light_model,
+            &device,
+            &config,
+            &camera,
+            &light,
+            include_str!("light.wgsl").into(),
+            None,
+            None,
+        );
+
+        let mut model_renderers = Vec::new();
+        model_renderers.push(light_renderer);
+        model_renderers.push(obj_renderer);
 
         Self {
             surface,
@@ -320,14 +167,10 @@ impl Scene {
             config,
             size,
             camera,
-            render_pipeline,
-            instances,
-            instance_buffer,
             depth_texture,
-            obj_model,
             light,
-            light_render_pipeline,
             mouse_pressed: false,
+            model_renderers,
         }
     }
 
@@ -395,8 +238,8 @@ impl Scene {
             });
 
         // create bind_groups for each model to render
-        let bind_groups = [&self.camera.bind_group, &self.light.bind_group];
-        let brick_bind_groups = [&self.camera.bind_group, &self.light.bind_group];
+        let bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
+        let brick_bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -427,19 +270,9 @@ impl Scene {
                 }),
             });
 
-            // set the vertex buffer
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-
-            // draw the light
-            render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_model(&self.obj_model, &bind_groups);
-            // draw instanced model
-            // render_pass.set_pipeline(&self.render_pipeline);
-            // render_pass.draw_model_instanced(
-            //     &self.obj_model,
-            //     0..self.instances.len() as u32,
-            //     &brick_bind_groups,
-            // );
+            for renderer in &self.model_renderers {
+                render_pass.draw_model(&renderer, bind_groups);
+            }
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -1,4 +1,4 @@
-use crate::texture;
+use crate::{camera, light, texture};
 use std::ops::Range;
 use std::path::Path;
 use tobj::*;
@@ -43,10 +43,77 @@ impl Vertex for ModelVertex {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct InstanceRaw {
+    pub model: [[f32; 4]; 4],
+    pub normal: [[f32; 3]; 3],
+}
+
+impl InstanceRaw {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            // We need to switch from using a step mode of Vertex to Instance
+            // This means that our shaders will only change to use the next
+            // instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
+                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
+                // for each vec4. We'll have to reassemble the mat4 in
+                // the shader.
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 8,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: 9,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
+                    shader_location: 10,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
+                    shader_location: 11,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
 pub struct Model {
     pub meshes: Vec<Mesh>,
-    pub materials: Vec<Material>,
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub materials: Option<Vec<Material>>,
+    pub material_layout: Option<wgpu::BindGroupLayout>,
+}
+
+pub struct Mesh {
+    pub geometry: Geometry,
+    pub material_id: Option<usize>,
 }
 
 pub struct Material {
@@ -55,12 +122,11 @@ pub struct Material {
     pub bind_group: wgpu::BindGroup,
 }
 
-pub struct Mesh {
+pub struct Geometry {
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_elements: u32,
-    pub material: usize,
 }
 
 impl Model {
@@ -84,7 +150,7 @@ impl Model {
         // We're assuming that the texture files are stored with the obj file
         let containing_folder = path.as_ref().parent().unwrap();
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -110,7 +176,7 @@ impl Model {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("material_bind_group_layout"),
         });
 
         let mut materials = Vec::new();
@@ -121,7 +187,7 @@ impl Model {
                     .unwrap();
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &bind_group_layout,
+                layout: &material_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -172,128 +238,173 @@ impl Model {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-            meshes.push(Mesh {
+            let geometry = Geometry {
                 name: m.name,
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,
-                material: m.mesh.material_id.unwrap_or(0),
+            };
+
+            meshes.push(Mesh {
+                geometry: geometry,
+                material_id: Some(m.mesh.material_id.unwrap_or(0)),
             });
         }
 
         Ok(Self {
-            meshes,
-            materials,
-            bind_group_layout,
+            meshes: meshes,
+            materials: Some(materials),
+            material_layout: Some(material_layout),
         })
     }
 }
 
-// model.rs
-// pub trait DrawModel<'a> {
-//     fn draw_model(
-//         &mut self,
-//         model: &'a Model,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_model_instanced(
-//         &mut self,
-//         model: &'a Model,
-//         instances: Range<u32>,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_mesh(
-//         &mut self,
-//         mesh: &'a Mesh,
-//         material: &'a Material,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-//     fn draw_mesh_instanced(
-//         &mut self,
-//         mesh: &'a Mesh,
-//         material: &'a Material,
-//         instances: Range<u32>,
-//         camera_bind_group: &'a wgpu::BindGroup,
-//         light_bind_group: &'a wgpu::BindGroup,
-//     );
-// }
+pub struct ModelRenderer {
+    pub model: Model,
+    pub render_pipeline: wgpu::RenderPipeline,
+    pub instance_buffer: Option<wgpu::Buffer>,
+    pub instance_length: Option<usize>,
+}
 
-// impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
-// where
-//     'b: 'a,
-// {
-//     fn draw_model(
-//         &mut self,
-//         model: &'b Model,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.draw_model_instanced(model, 0..1, camera_bind_group, light_bind_group);
-//     }
+impl ModelRenderer {
+    pub fn new_renderer(
+        model: Model,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        camera: &camera::Camera,
+        light: &light::Light,
+        shader_file: std::borrow::Cow<str>,
+        instance_data: Option<Vec<InstanceRaw>>,
+        instance_length: Option<usize>,
+    ) -> ModelRenderer {
+        let instance_mode = if let Some(_) = &instance_data {
+            true
+        } else {
+            false
+        };
 
-//     fn draw_model_instanced(
-//         &mut self,
-//         model: &'b Model,
-//         instances: Range<u32>,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         for mesh in &model.meshes {
-//             let material = &model.materials[mesh.material];
-//             self.draw_mesh_instanced(
-//                 mesh,
-//                 material,
-//                 instances.clone(),
-//                 camera_bind_group,
-//                 light_bind_group,
-//             );
-//         }
-//     }
+        let render_pipeline = {
+            // declare a dynamic array for bind group layouts
+            let mut bind_group_layouts = Vec::new();
+            if let Some(material_layout) = model.material_layout.as_ref() {
+                bind_group_layouts.push(material_layout);
+            }
+            // add camera and lightning
+            bind_group_layouts.push(&camera.bind_group_layout);
+            bind_group_layouts.push(&light.bind_group_layout);
 
-//     fn draw_mesh(
-//         &mut self,
-//         mesh: &'b Mesh,
-//         material: &'b Material,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group, light_bind_group);
-//     }
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &bind_group_layouts[..],
+                    push_constant_ranges: &[],
+                });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_file),
+            };
 
-//     fn draw_mesh_instanced(
-//         &mut self,
-//         mesh: &'b Mesh,
-//         material: &'b Material,
-//         instances: Range<u32>,
-//         camera_bind_group: &'b wgpu::BindGroup,
-//         light_bind_group: &'b wgpu::BindGroup,
-//     ) {
-//         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-//         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-//         self.set_bind_group(0, &material.bind_group, &[]);
-//         self.set_bind_group(1, camera_bind_group, &[]);
-//         self.set_bind_group(2, light_bind_group, &[]);
-//         self.draw_indexed(0..mesh.num_elements, 0, instances);
-//     }
-// }
+            let mut vertex_layouts = Vec::new();
+            vertex_layouts.push(ModelVertex::desc());
+            if instance_mode {
+                vertex_layouts.push(InstanceRaw::desc());
+            }
 
-// model.rs
+            ModelRenderer::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &vertex_layouts[..],
+                shader,
+            )
+        };
+
+        let instance_buffer = if instance_mode {
+            Some(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Instance Buffer"),
+                    contents: bytemuck::cast_slice(&instance_data.unwrap()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+            )
+        } else {
+            None
+        };
+
+        ModelRenderer {
+            model: model,
+            render_pipeline: render_pipeline,
+            instance_buffer: instance_buffer,
+            instance_length: instance_length,
+        }
+    }
+
+    fn create_render_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        color_format: wgpu::TextureFormat,
+        depth_format: Option<wgpu::TextureFormat>,
+        vertex_layouts: &[wgpu::VertexBufferLayout],
+        shader: wgpu::ShaderModuleDescriptor,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(&shader);
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: vertex_layouts,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState {
+                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                }],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLAMPING
+                clamp_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
+                format,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+        })
+    }
+}
+
 pub trait DrawModel<'a> {
-    fn draw_mesh(&mut self, mesh: &'a Mesh, bind_groups: &'a [&'a wgpu::BindGroup]);
+    fn draw_model(&mut self, model: &'a ModelRenderer, bind_groups: &'a [&'a wgpu::BindGroup]);
+
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'a Mesh,
-        instances: Range<u32>,
-        bind_groups: &'a [&'a wgpu::BindGroup],
-    );
-
-    fn draw_model(&mut self, model: &'a Model, bind_groups: &'a [&'a wgpu::BindGroup]);
-    fn draw_model_instanced(
-        &mut self,
-        model: &'a Model,
+        material_bind_group: Option<&'a wgpu::BindGroup>,
         instances: Range<u32>,
         bind_groups: &'a [&'a wgpu::BindGroup],
     );
@@ -303,40 +414,71 @@ impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
 {
-    // draw a complete model
-    fn draw_model(&mut self, model: &'b Model, bind_groups: &'b [&'b wgpu::BindGroup]) {
-        self.draw_model_instanced(model, 0..1, bind_groups);
-    }
-
-    fn draw_model_instanced(
+    fn draw_model(
         &mut self,
-        model: &'b Model,
-        instances: Range<u32>,
+        model_renderer: &'b ModelRenderer,
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
-        for mesh in &model.meshes {
-            self.draw_mesh_instanced(mesh, instances.clone(), bind_groups);
-        }
-    }
+        // set pipeline
+        self.set_pipeline(&model_renderer.render_pipeline);
 
-    // draw each mesh in a model
-    fn draw_mesh(&mut self, mesh: &'b Mesh, bind_groups: &'a [&'a wgpu::BindGroup]) {
-        self.draw_mesh_instanced(mesh, 0..1, bind_groups);
+        // check if there is more than one instance to draw
+        let instances_to_draw = if let Some(instance_range) = model_renderer.instance_length {
+            // set the instance buffer
+            self.set_vertex_buffer(
+                1,
+                model_renderer.instance_buffer.as_ref().unwrap().slice(..),
+            );
+            // return the instances range
+            0..(instance_range as u32)
+        } else {
+            0..1
+        };
+
+        // draw each mesh of the model
+        for mesh in &model_renderer.model.meshes {
+            if let Some(material_index) = mesh.material_id {
+                let material_bind_group =
+                    &model_renderer.model.materials.as_ref().unwrap()[material_index].bind_group;
+                self.draw_mesh_instanced(
+                    mesh,
+                    Some(material_bind_group),
+                    instances_to_draw.clone(),
+                    bind_groups,
+                );
+            } else {
+                self.draw_mesh_instanced(mesh, None, instances_to_draw.clone(), bind_groups);
+            }
+        }
     }
 
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'b Mesh,
+        material_bind_group: Option<&'b wgpu::BindGroup>,
         instances: Range<u32>,
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
-        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        // set vertex & index buffer
+        self.set_vertex_buffer(0, mesh.geometry.vertex_buffer.slice(..));
+        self.set_index_buffer(
+            mesh.geometry.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint32,
+        );
 
+        // set material bind group
+        let mut offset = 0;
+        if let Some(material) = material_bind_group {
+            self.set_bind_group(0, material, &[]);
+            offset += 1;
+        }
+
+        // set light bind group
         bind_groups.iter().enumerate().for_each(|(index, group)| {
-            self.set_bind_group(index as u32, *group, &[]);
+            self.set_bind_group(index as u32 + offset, *group, &[]);
         });
 
-        self.draw_indexed(0..mesh.num_elements, 0, instances);
+        // draw the mesh
+        self.draw_indexed(0..mesh.geometry.num_elements, 0, instances);
     }
 }
