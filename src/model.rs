@@ -251,52 +251,7 @@ impl Model {
     }
 }
 
-pub struct ModelRenderer {
-    pub model: Model,
-    pub render_pipeline: wgpu::RenderPipeline,
-}
-
-impl ModelRenderer {
-    pub fn new_renderer(
-        model: Model,
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        camera: &camera::Camera,
-        light: &light::Light,
-        shader_file: std::borrow::Cow<str>,
-    ) -> ModelRenderer {
-        let render_pipeline = {
-            let bind_group_layouts = &[
-                &model.material_layout,
-                &camera.bind_group_layout,
-                &light.bind_group_layout,
-            ];
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: bind_group_layouts,
-                    push_constant_ranges: &[],
-                });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(shader_file),
-            };
-            ModelRenderer::create_render_pipeline(
-                &device,
-                &render_pipeline_layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[ModelVertex::desc(), InstanceRaw::desc()],
-                shader,
-            )
-        };
-
-        ModelRenderer {
-            model: model,
-            render_pipeline: render_pipeline,
-        }
-    }
-
+pub trait Renderer {
     fn create_render_pipeline(
         device: &wgpu::Device,
         layout: &wgpu::PipelineLayout,
@@ -354,6 +309,97 @@ impl ModelRenderer {
         })
     }
 }
+
+pub struct ModelRenderer {
+    pub model: Model,
+    pub render_pipeline: wgpu::RenderPipeline,
+}
+
+impl Renderer for ModelRenderer {}
+
+impl ModelRenderer {
+    pub fn new_renderer(
+        model: Model,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        camera: &camera::Camera,
+        light: &light::Light,
+        shader_file: std::borrow::Cow<str>,
+    ) -> ModelRenderer {
+        let render_pipeline = {
+            let bind_group_layouts = &[
+                &model.material_layout,
+                &camera.bind_group_layout,
+                &light.bind_group_layout,
+            ];
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: bind_group_layouts,
+                    push_constant_ranges: &[],
+                });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_file),
+            };
+            ModelRenderer::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &[ModelVertex::desc(), InstanceRaw::desc()],
+                shader,
+            )
+        };
+
+        ModelRenderer {
+            model: model,
+            render_pipeline: render_pipeline,
+        }
+    }
+}
+
+pub struct MeshRenderer {
+    pub render_pipeline: wgpu::RenderPipeline,
+}
+impl Renderer for MeshRenderer {}
+
+impl MeshRenderer {
+    pub fn new_renderer(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        camera: &camera::Camera,
+        light: &light::Light,
+        shader_file: std::borrow::Cow<str>,
+    ) -> MeshRenderer {
+        let render_pipeline = {
+            let bind_group_layouts = &[&camera.bind_group_layout, &light.bind_group_layout];
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: bind_group_layouts,
+                    push_constant_ranges: &[],
+                });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_file),
+            };
+            ModelRenderer::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &[ModelVertex::desc(), InstanceRaw::desc()],
+                shader,
+            )
+        };
+
+        MeshRenderer {
+            render_pipeline: render_pipeline,
+        }
+    }
+}
+
 pub trait DrawModel<'a> {
     fn draw_model(&mut self, model: &'a Model, bind_groups: &'a [&'a wgpu::BindGroup]);
 

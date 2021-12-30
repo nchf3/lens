@@ -5,7 +5,7 @@ mod texture;
 
 use crate::model::DrawModel;
 use cgmath::prelude::*;
-use model::{InstanceRaw, ModelRenderer, Vertex};
+use model::{InstanceRaw, MeshRenderer, ModelRenderer};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalPosition,
@@ -101,7 +101,7 @@ struct Scene {
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     light: light::Light,
-    light_render_pipeline: wgpu::RenderPipeline,
+    light_renderer: MeshRenderer,
     mouse_pressed: bool,
     model_renderer: ModelRenderer,
 }
@@ -196,25 +196,13 @@ impl Scene {
             include_str!("shader.wgsl").into(),
         );
 
-        let light_render_pipeline = {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[&camera.bind_group_layout, &light.bind_group_layout],
-                push_constant_ranges: &[],
-            });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Light Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
-            };
-            create_render_pipeline(
-                &device,
-                &layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[model::ModelVertex::desc()],
-                shader,
-            )
-        };
+        let light_renderer = MeshRenderer::new_renderer(
+            &device,
+            &config,
+            &camera,
+            &light,
+            include_str!("light.wgsl").into(),
+        );
 
         Self {
             surface,
@@ -227,7 +215,7 @@ impl Scene {
             instance_buffer,
             depth_texture,
             light,
-            light_render_pipeline,
+            light_renderer,
             mouse_pressed: false,
             model_renderer,
         }
@@ -333,7 +321,7 @@ impl Scene {
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
 
             // draw the light
-            render_pass.set_pipeline(&self.light_render_pipeline);
+            render_pass.set_pipeline(&self.light_renderer.render_pipeline);
             render_pass.draw_mesh(
                 &self.model_renderer.model.meshes.first().unwrap(),
                 None,
