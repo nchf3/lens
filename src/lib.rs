@@ -152,17 +152,6 @@ fn create_render_pipeline(
     })
 }
 
-// struct Scene {
-//     surface: wgpu::Surface,
-//     device: wgpu::Device,
-//     queue: wgpu::Queue,
-//     config: wgpu::SurfaceConfiguration,
-//     size: winit::dpi::PhysicalSize<u32>,
-//     camera: camera::Camera,
-//     light: light::Light,
-//     model_render: &[ModelRenderer],
-// }
-
 struct Scene {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -251,40 +240,24 @@ impl Scene {
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let obj_model =
-            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
-
         // create the camera
         let camera = camera::Camera::new(&device, &config);
 
         // create light bind_group_layout and bind group
         let light = light::Light::new(&device);
 
-        let render_pipeline = {
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &obj_model.material_layout,
-                        &camera.bind_group_layout,
-                        &light.bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-            };
-            create_render_pipeline(
-                &device,
-                &render_pipeline_layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[model::ModelVertex::desc(), InstanceRaw::desc()],
-                shader,
-            )
-        };
+        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        let obj_model =
+            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+        let model_renderer = ModelRenderer::new_renderer(
+            obj_model,
+            &device,
+            &config,
+            &camera,
+            &light,
+            model::ModelVertex::desc(),
+            InstanceRaw::desc(),
+        );
 
         let light_render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -304,11 +277,6 @@ impl Scene {
                 &[model::ModelVertex::desc()],
                 shader,
             )
-        };
-
-        let model_renderer = ModelRenderer {
-            model: obj_model,
-            render_pipeline: render_pipeline,
         };
 
         Self {
