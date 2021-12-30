@@ -335,15 +335,19 @@ impl ModelRenderer {
         shader_file: std::borrow::Cow<str>,
     ) -> ModelRenderer {
         let render_pipeline = {
-            let bind_group_layouts = &[
-                &model.material_layout.as_ref().unwrap(),
-                &camera.bind_group_layout,
-                &light.bind_group_layout,
-            ];
+            // declare a dynamic array for bind group layouts
+            let mut bind_group_layouts = Vec::new();
+            if let Some(material_layout) = model.material_layout.as_ref() {
+                bind_group_layouts.push(material_layout);
+            }
+            // add camera and lightning
+            bind_group_layouts.push(&camera.bind_group_layout);
+            bind_group_layouts.push(&light.bind_group_layout);
+
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: bind_group_layouts,
+                    bind_group_layouts: &bind_group_layouts[..],
                     push_constant_ranges: &[],
                 });
             let shader = wgpu::ShaderModuleDescriptor {
@@ -367,61 +371,11 @@ impl ModelRenderer {
     }
 }
 
-pub struct MeshRenderer {
-    pub render_pipeline: wgpu::RenderPipeline,
-}
-impl Renderer for MeshRenderer {}
-
-impl MeshRenderer {
-    pub fn new_renderer(
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        camera: &camera::Camera,
-        light: &light::Light,
-        shader_file: std::borrow::Cow<str>,
-    ) -> MeshRenderer {
-        let render_pipeline = {
-            let bind_group_layouts = &[&camera.bind_group_layout, &light.bind_group_layout];
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: bind_group_layouts,
-                    push_constant_ranges: &[],
-                });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(shader_file),
-            };
-            ModelRenderer::create_render_pipeline(
-                &device,
-                &render_pipeline_layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[ModelVertex::desc(), InstanceRaw::desc()],
-                shader,
-            )
-        };
-
-        MeshRenderer {
-            render_pipeline: render_pipeline,
-        }
-    }
-}
-
 pub trait DrawModel<'a> {
-    fn draw_model(&mut self, model: &'a Model, bind_groups: &'a [&'a wgpu::BindGroup]);
-
-    fn draw_model_instanced(
+    fn draw_model(
         &mut self,
         model: &'a Model,
-        instances: Range<u32>,
-        bind_groups: &'a [&'a wgpu::BindGroup],
-    );
-
-    fn draw_mesh(
-        &mut self,
-        mesh: &'a Mesh,
-        material_bind_group: Option<&'a wgpu::BindGroup>,
+        instances: Option<Range<u32>>,
         bind_groups: &'a [&'a wgpu::BindGroup],
     );
 
@@ -438,17 +392,18 @@ impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
 {
-    // draw a complete model
-    fn draw_model(&mut self, model: &'b Model, bind_groups: &'b [&'b wgpu::BindGroup]) {
-        self.draw_model_instanced(model, 0..1, bind_groups);
-    }
-
-    fn draw_model_instanced(
+    fn draw_model(
         &mut self,
         model: &'b Model,
-        instances: Range<u32>,
+        instances: Option<Range<u32>>,
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
+        let instances_to_draw = if let Some(instance_range) = instances {
+            instance_range
+        } else {
+            0..1
+        };
+
         for mesh in &model.meshes {
             if let Some(material_index) = mesh.material_id {
                 let material_bind_group =
@@ -456,23 +411,13 @@ where
                 self.draw_mesh_instanced(
                     mesh,
                     Some(material_bind_group),
-                    instances.clone(),
+                    instances_to_draw.clone(),
                     bind_groups,
                 );
             } else {
-                self.draw_mesh_instanced(mesh, None, instances.clone(), bind_groups);
+                self.draw_mesh_instanced(mesh, None, instances_to_draw.clone(), bind_groups);
             }
         }
-    }
-
-    // draw each mesh in a model
-    fn draw_mesh(
-        &mut self,
-        mesh: &'b Mesh,
-        material_bind_group: Option<&'b wgpu::BindGroup>,
-        bind_groups: &'b [&'b wgpu::BindGroup],
-    ) {
-        self.draw_mesh_instanced(mesh, material_bind_group, 0..1, bind_groups);
     }
 
     fn draw_mesh_instanced(

@@ -5,7 +5,7 @@ mod texture;
 
 use crate::model::DrawModel;
 use cgmath::prelude::*;
-use model::{InstanceRaw, MeshRenderer, ModelRenderer};
+use model::{InstanceRaw, ModelRenderer};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalPosition,
@@ -44,7 +44,7 @@ struct Scene {
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     light: light::Light,
-    light_renderer: MeshRenderer,
+    light_renderer: ModelRenderer,
     mouse_pressed: bool,
     model_renderer: ModelRenderer,
 }
@@ -139,7 +139,19 @@ impl Scene {
             include_str!("shader.wgsl").into(),
         );
 
-        let light_renderer = MeshRenderer::new_renderer(
+        let mut light_obj =
+            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+        let light_model = model::Model {
+            meshes: vec![model::Mesh {
+                geometry: light_obj.meshes.pop().unwrap().geometry,
+                material_id: None,
+            }],
+            materials: None,
+            material_layout: None,
+        };
+
+        let light_renderer = ModelRenderer::new_renderer(
+            light_model,
             &device,
             &config,
             &camera,
@@ -265,17 +277,13 @@ impl Scene {
 
             // draw the light
             render_pass.set_pipeline(&self.light_renderer.render_pipeline);
-            render_pass.draw_mesh(
-                &self.model_renderer.model.meshes.first().unwrap(),
-                None,
-                bind_groups,
-            );
+            render_pass.draw_model(&self.light_renderer.model, None, bind_groups);
 
             // draw instanced model
             render_pass.set_pipeline(&self.model_renderer.render_pipeline);
-            render_pass.draw_model_instanced(
+            render_pass.draw_model(
                 &self.model_renderer.model,
-                0..self.instances.len() as u32,
+                Some(0..self.instances.len() as u32),
                 brick_bind_groups,
             );
         }
