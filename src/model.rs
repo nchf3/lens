@@ -259,7 +259,87 @@ impl Model {
     }
 }
 
-pub trait Renderer {
+pub struct ModelRenderer {
+    pub model: Model,
+    pub render_pipeline: wgpu::RenderPipeline,
+    pub instance_buffer: Option<wgpu::Buffer>,
+    pub instance_length: Option<usize>,
+}
+
+impl ModelRenderer {
+    pub fn new_renderer(
+        model: Model,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        camera: &camera::Camera,
+        light: &light::Light,
+        shader_file: std::borrow::Cow<str>,
+        instance_data: Option<Vec<InstanceRaw>>,
+        instance_length: Option<usize>,
+    ) -> ModelRenderer {
+        let instance_mode = if let Some(_) = &instance_data {
+            true
+        } else {
+            false
+        };
+
+        let render_pipeline = {
+            // declare a dynamic array for bind group layouts
+            let mut bind_group_layouts = Vec::new();
+            if let Some(material_layout) = model.material_layout.as_ref() {
+                bind_group_layouts.push(material_layout);
+            }
+            // add camera and lightning
+            bind_group_layouts.push(&camera.bind_group_layout);
+            bind_group_layouts.push(&light.bind_group_layout);
+
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &bind_group_layouts[..],
+                    push_constant_ranges: &[],
+                });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_file),
+            };
+
+            let mut vertex_layouts = Vec::new();
+            vertex_layouts.push(ModelVertex::desc());
+            if instance_mode {
+                vertex_layouts.push(InstanceRaw::desc());
+            }
+
+            ModelRenderer::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &vertex_layouts[..],
+                shader,
+            )
+        };
+
+        let instance_buffer = if instance_mode {
+            Some(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Instance Buffer"),
+                    contents: bytemuck::cast_slice(&instance_data.unwrap()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+            )
+        } else {
+            None
+        };
+
+        ModelRenderer {
+            model: model,
+            render_pipeline: render_pipeline,
+            instance_buffer: instance_buffer,
+            instance_length: instance_length,
+        }
+    }
+
     fn create_render_pipeline(
         device: &wgpu::Device,
         layout: &wgpu::PipelineLayout,
@@ -318,66 +398,8 @@ pub trait Renderer {
     }
 }
 
-pub struct ModelRenderer {
-    pub model: Model,
-    pub render_pipeline: wgpu::RenderPipeline,
-}
-
-impl Renderer for ModelRenderer {}
-
-impl ModelRenderer {
-    pub fn new_renderer(
-        model: Model,
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        camera: &camera::Camera,
-        light: &light::Light,
-        shader_file: std::borrow::Cow<str>,
-    ) -> ModelRenderer {
-        let render_pipeline = {
-            // declare a dynamic array for bind group layouts
-            let mut bind_group_layouts = Vec::new();
-            if let Some(material_layout) = model.material_layout.as_ref() {
-                bind_group_layouts.push(material_layout);
-            }
-            // add camera and lightning
-            bind_group_layouts.push(&camera.bind_group_layout);
-            bind_group_layouts.push(&light.bind_group_layout);
-
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &bind_group_layouts[..],
-                    push_constant_ranges: &[],
-                });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(shader_file),
-            };
-            ModelRenderer::create_render_pipeline(
-                &device,
-                &render_pipeline_layout,
-                config.format,
-                Some(texture::Texture::DEPTH_FORMAT),
-                &[ModelVertex::desc(), InstanceRaw::desc()],
-                shader,
-            )
-        };
-
-        ModelRenderer {
-            model: model,
-            render_pipeline: render_pipeline,
-        }
-    }
-}
-
 pub trait DrawModel<'a> {
-    fn draw_model(
-        &mut self,
-        model: &'a Model,
-        instances: Option<Range<u32>>,
-        bind_groups: &'a [&'a wgpu::BindGroup],
-    );
+    fn draw_model(&mut self, model: &'a ModelRenderer, bind_groups: &'a [&'a wgpu::BindGroup]);
 
     fn draw_mesh_instanced(
         &mut self,
@@ -394,20 +416,30 @@ where
 {
     fn draw_model(
         &mut self,
-        model: &'b Model,
-        instances: Option<Range<u32>>,
+        model_renderer: &'b ModelRenderer,
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
-        let instances_to_draw = if let Some(instance_range) = instances {
-            instance_range
+        // set pipeline
+        self.set_pipeline(&model_renderer.render_pipeline);
+
+        // check if there is more than one instance to draw
+        let instances_to_draw = if let Some(instance_range) = model_renderer.instance_length {
+            // set the instance buffer
+            self.set_vertex_buffer(
+                1,
+                model_renderer.instance_buffer.as_ref().unwrap().slice(..),
+            );
+            // return the instances range
+            0..(instance_range as u32)
         } else {
             0..1
         };
 
-        for mesh in &model.meshes {
+        // draw each mesh of the model
+        for mesh in &model_renderer.model.meshes {
             if let Some(material_index) = mesh.material_id {
                 let material_bind_group =
-                    &model.materials.as_ref().unwrap()[material_index].bind_group;
+                    &model_renderer.model.materials.as_ref().unwrap()[material_index].bind_group;
                 self.draw_mesh_instanced(
                     mesh,
                     Some(material_bind_group),

@@ -40,8 +40,6 @@ struct Scene {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     camera: camera::Camera,
-    instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     light: light::Light,
     light_renderer: ModelRenderer,
@@ -112,11 +110,7 @@ impl Scene {
             .collect::<Vec<_>>();
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let instance_len = instance_data.len();
 
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
@@ -130,13 +124,15 @@ impl Scene {
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let obj_model =
             model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
-        let model_renderer = ModelRenderer::new_renderer(
+        let obj_renderer = ModelRenderer::new_renderer(
             obj_model,
             &device,
             &config,
             &camera,
             &light,
             include_str!("shader.wgsl").into(),
+            Some(instance_data),
+            Some(instance_len),
         );
 
         let mut light_obj =
@@ -157,6 +153,8 @@ impl Scene {
             &camera,
             &light,
             include_str!("light.wgsl").into(),
+            None,
+            None,
         );
 
         Self {
@@ -166,13 +164,11 @@ impl Scene {
             config,
             size,
             camera,
-            instances,
-            instance_buffer,
             depth_texture,
             light,
             light_renderer,
             mouse_pressed: false,
-            model_renderer,
+            model_renderer: obj_renderer,
         }
     }
 
@@ -272,20 +268,11 @@ impl Scene {
                 }),
             });
 
-            // set the vertex buffer
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-
             // draw the light
-            render_pass.set_pipeline(&self.light_renderer.render_pipeline);
-            render_pass.draw_model(&self.light_renderer.model, None, bind_groups);
+            render_pass.draw_model(&self.light_renderer, bind_groups);
 
             // draw instanced model
-            render_pass.set_pipeline(&self.model_renderer.render_pipeline);
-            render_pass.draw_model(
-                &self.model_renderer.model,
-                Some(0..self.instances.len() as u32),
-                brick_bind_groups,
-            );
+            render_pass.draw_model(&self.model_renderer, brick_bind_groups);
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
