@@ -42,9 +42,8 @@ struct Scene {
     camera: camera::Camera,
     depth_texture: texture::Texture,
     light: light::Light,
-    light_renderer: ModelRenderer,
     mouse_pressed: bool,
-    model_renderer: ModelRenderer,
+    model_renderers: Vec<ModelRenderer>,
 }
 
 impl Scene {
@@ -157,6 +156,10 @@ impl Scene {
             None,
         );
 
+        let mut model_renderers = Vec::new();
+        model_renderers.push(light_renderer);
+        model_renderers.push(obj_renderer);
+
         Self {
             surface,
             device,
@@ -166,9 +169,8 @@ impl Scene {
             camera,
             depth_texture,
             light,
-            light_renderer,
             mouse_pressed: false,
-            model_renderer: obj_renderer,
+            model_renderers,
         }
     }
 
@@ -268,11 +270,9 @@ impl Scene {
                 }),
             });
 
-            // draw the light
-            render_pass.draw_model(&self.light_renderer, bind_groups);
-
-            // draw instanced model
-            render_pass.draw_model(&self.model_renderer, brick_bind_groups);
+            for renderer in &self.model_renderers {
+                render_pass.draw_model(&renderer, bind_groups);
+            }
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
