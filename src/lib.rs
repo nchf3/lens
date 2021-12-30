@@ -432,7 +432,7 @@ impl Scene {
 
             // draw the light
             render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_mesh(&self.obj_model.meshes.first().unwrap(), &bind_groups);
+            render_pass.draw_mesh(&self.obj_model.meshes.first().unwrap(), None, &bind_groups);
 
             // draw instanced model
             render_pass.set_pipeline(&self.render_pipeline);

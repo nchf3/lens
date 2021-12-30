@@ -191,26 +191,26 @@ impl Model {
 
 // model.rs
 pub trait DrawModel<'a> {
-    fn draw_mesh(&mut self, mesh: &'a Mesh, bind_groups: &'a [&'a wgpu::BindGroup]);
-    fn draw_mesh_instanced(
-        &mut self,
-        mesh: &'a Mesh,
-        instances: Range<u32>,
-        bind_groups: &'a [&'a wgpu::BindGroup],
-    );
-
-    fn draw_mesh_with_material_instanced(
-        &mut self,
-        mesh: &'a Mesh,
-        material_bind_group: &'a wgpu::BindGroup,
-        instances: Range<u32>,
-        bind_groups: &'a [&'a wgpu::BindGroup],
-    );
-
     fn draw_model(&mut self, model: &'a Model, bind_groups: &'a [&'a wgpu::BindGroup]);
+
     fn draw_model_instanced(
         &mut self,
         model: &'a Model,
+        instances: Range<u32>,
+        bind_groups: &'a [&'a wgpu::BindGroup],
+    );
+
+    fn draw_mesh(
+        &mut self,
+        mesh: &'a Mesh,
+        material_bind_group: Option<&'a wgpu::BindGroup>,
+        bind_groups: &'a [&'a wgpu::BindGroup],
+    );
+
+    fn draw_mesh_instanced(
+        &mut self,
+        mesh: &'a Mesh,
+        material_bind_group: Option<&'a wgpu::BindGroup>,
         instances: Range<u32>,
         bind_groups: &'a [&'a wgpu::BindGroup],
     );
@@ -233,49 +233,49 @@ where
     ) {
         for mesh in &model.meshes {
             let material_bind_group = &model.materials[mesh.material].bind_group;
-            self.draw_mesh_with_material_instanced(
+            self.draw_mesh_instanced(
                 mesh,
-                material_bind_group,
+                Some(material_bind_group),
                 instances.clone(),
                 bind_groups,
             );
         }
     }
 
-    fn draw_mesh_with_material_instanced(
+    // draw each mesh in a model
+    fn draw_mesh(
         &mut self,
         mesh: &'b Mesh,
-        material_bind_group: &'b wgpu::BindGroup,
-        instances: Range<u32>,
-        bind_groups: &'b [&'b wgpu::BindGroup],
+        material_bind_group: Option<&'b wgpu::BindGroup>,
+        bind_groups: &'a [&'a wgpu::BindGroup],
     ) {
-        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        self.set_bind_group(0, material_bind_group, &[]);
-        bind_groups.iter().enumerate().for_each(|(index, group)| {
-            self.set_bind_group(index as u32 + 1, *group, &[]);
-        });
-        self.draw_indexed(0..mesh.num_elements, 0, instances);
-    }
-
-    // draw each mesh in a model
-    fn draw_mesh(&mut self, mesh: &'b Mesh, bind_groups: &'a [&'a wgpu::BindGroup]) {
-        self.draw_mesh_instanced(mesh, 0..1, bind_groups);
+        self.draw_mesh_instanced(mesh, material_bind_group, 0..1, bind_groups);
     }
 
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'b Mesh,
+        material_bind_group: Option<&'b wgpu::BindGroup>,
         instances: Range<u32>,
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
+        // set vertex & index buffer
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
+        // set material bind group
+        let mut offset = 0;
+        if let Some(material) = material_bind_group {
+            self.set_bind_group(0, material, &[]);
+            offset += 1;
+        }
+
+        // set light bind group
         bind_groups.iter().enumerate().for_each(|(index, group)| {
-            self.set_bind_group(index as u32, *group, &[]);
+            self.set_bind_group(index as u32 + offset, *group, &[]);
         });
 
+        // draw the mesh
         self.draw_indexed(0..mesh.num_elements, 0, instances);
     }
 }
