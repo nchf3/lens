@@ -43,6 +43,11 @@ impl Vertex for ModelVertex {
     }
 }
 
+pub struct ModelRenderer {
+    pub model: Model,
+    pub render_pipeline: wgpu::RenderPipeline,
+}
+
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,

@@ -5,7 +5,7 @@ mod texture;
 
 use crate::model::DrawModel;
 use cgmath::prelude::*;
-use model::Vertex;
+use model::{ModelRenderer, Vertex};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalPosition,
@@ -152,12 +152,6 @@ fn create_render_pipeline(
     })
 }
 
-// struct ModelRenderer {
-//     model: model::Model,
-//     bind_groups: &[wgpu::BindGroup],
-//     render_pipeline: wgpu::RenderPipeline,
-// }
-
 // struct Scene {
 //     surface: wgpu::Surface,
 //     device: wgpu::Device,
@@ -176,19 +170,18 @@ struct Scene {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     camera: camera::Camera,
-    render_pipeline: wgpu::RenderPipeline,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
-    obj_model: model::Model,
     light: light::Light,
     light_render_pipeline: wgpu::RenderPipeline,
     mouse_pressed: bool,
+    model_renderer: ModelRenderer,
 }
 
 impl Scene {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> Self {
+    async fn new(window: &Window) -> Scene {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -313,6 +306,11 @@ impl Scene {
             )
         };
 
+        let model_renderer = ModelRenderer {
+            model: obj_model,
+            render_pipeline: render_pipeline,
+        };
+
         Self {
             surface,
             device,
@@ -320,14 +318,13 @@ impl Scene {
             config,
             size,
             camera,
-            render_pipeline,
             instances,
             instance_buffer,
             depth_texture,
-            obj_model,
             light,
             light_render_pipeline,
             mouse_pressed: false,
+            model_renderer,
         }
     }
 
@@ -395,8 +392,8 @@ impl Scene {
             });
 
         // create bind_groups for each model to render
-        let bind_groups = [&self.camera.bind_group, &self.light.bind_group];
-        let brick_bind_groups = [&self.camera.bind_group, &self.light.bind_group];
+        let bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
+        let brick_bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -432,14 +429,18 @@ impl Scene {
 
             // draw the light
             render_pass.set_pipeline(&self.light_render_pipeline);
-            render_pass.draw_mesh(&self.obj_model.meshes.first().unwrap(), None, &bind_groups);
+            render_pass.draw_mesh(
+                &self.model_renderer.model.meshes.first().unwrap(),
+                None,
+                bind_groups,
+            );
 
             // draw instanced model
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(&self.model_renderer.render_pipeline);
             render_pass.draw_model_instanced(
-                &self.obj_model,
+                &self.model_renderer.model,
                 0..self.instances.len() as u32,
-                &brick_bind_groups,
+                brick_bind_groups,
             );
         }
         // submit will accept anything that implements IntoIter
