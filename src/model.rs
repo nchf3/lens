@@ -113,7 +113,7 @@ pub struct Model {
 
 pub struct Mesh {
     pub geometry: Geometry,
-    pub material: usize,
+    pub material_id: Option<usize>,
 }
 
 pub struct Material {
@@ -247,7 +247,7 @@ impl Model {
 
             meshes.push(Mesh {
                 geometry: geometry,
-                material: m.mesh.material_id.unwrap_or(0),
+                material_id: Some(m.mesh.material_id.unwrap_or(0)),
             });
         }
 
@@ -450,7 +450,7 @@ where
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
         for mesh in &model.meshes {
-            let material_bind_group = &model.materials[mesh.material].bind_group;
+            let material_bind_group = &model.materials[mesh.material_id.unwrap()].bind_group;
             self.draw_mesh_instanced(
                 mesh,
                 Some(material_bind_group),
