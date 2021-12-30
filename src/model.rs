@@ -107,8 +107,8 @@ impl InstanceRaw {
 
 pub struct Model {
     pub meshes: Vec<Mesh>,
-    pub materials: Vec<Material>,
-    pub material_layout: wgpu::BindGroupLayout,
+    pub materials: Option<Vec<Material>>,
+    pub material_layout: Option<wgpu::BindGroupLayout>,
 }
 
 pub struct Mesh {
@@ -252,9 +252,9 @@ impl Model {
         }
 
         Ok(Self {
-            meshes,
-            materials,
-            material_layout,
+            meshes: meshes,
+            materials: Some(materials),
+            material_layout: Some(material_layout),
         })
     }
 }
@@ -336,7 +336,7 @@ impl ModelRenderer {
     ) -> ModelRenderer {
         let render_pipeline = {
             let bind_group_layouts = &[
-                &model.material_layout,
+                &model.material_layout.as_ref().unwrap(),
                 &camera.bind_group_layout,
                 &light.bind_group_layout,
             ];
@@ -450,13 +450,18 @@ where
         bind_groups: &'b [&'b wgpu::BindGroup],
     ) {
         for mesh in &model.meshes {
-            let material_bind_group = &model.materials[mesh.material_id.unwrap()].bind_group;
-            self.draw_mesh_instanced(
-                mesh,
-                Some(material_bind_group),
-                instances.clone(),
-                bind_groups,
-            );
+            if let Some(material_index) = mesh.material_id {
+                let material_bind_group =
+                    &model.materials.as_ref().unwrap()[material_index].bind_group;
+                self.draw_mesh_instanced(
+                    mesh,
+                    Some(material_bind_group),
+                    instances.clone(),
+                    bind_groups,
+                );
+            } else {
+                self.draw_mesh_instanced(mesh, None, instances.clone(), bind_groups);
+            }
         }
     }
 
