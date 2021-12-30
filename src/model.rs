@@ -203,6 +203,7 @@ impl ModelRenderer {
         light: &light::Light,
         vertex_layout: wgpu::VertexBufferLayout,
         instance_layout: wgpu::VertexBufferLayout,
+        shader_file: std::borrow::Cow<str>,
     ) -> ModelRenderer {
         let render_pipeline = {
             let bind_group_layouts = &[
@@ -218,7 +219,7 @@ impl ModelRenderer {
                 });
             let shader = wgpu::ShaderModuleDescriptor {
                 label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(shader_file),
             };
             ModelRenderer::create_render_pipeline(
                 &device,

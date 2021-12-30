@@ -257,6 +257,7 @@ impl Scene {
             &light,
             model::ModelVertex::desc(),
             InstanceRaw::desc(),
+            include_str!("shader.wgsl").into(),
         );
 
         let light_render_pipeline = {
