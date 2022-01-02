@@ -1,12 +1,10 @@
 mod camera;
 mod light;
-mod model;
+mod renderer;
 mod texture;
 
-use crate::model::DrawModel;
 use cgmath::prelude::*;
-use model::{InstanceRaw, ModelRenderer};
-use wgpu::util::DeviceExt;
+use renderer::{DrawModel, InstanceRaw, ModelRenderer};
 use winit::{
     dpi::PhysicalPosition,
     event::*,
@@ -122,7 +120,7 @@ impl Scene {
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let obj_model =
-            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+            renderer::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
         let obj_renderer = ModelRenderer::new_renderer(
             obj_model,
             &device,
@@ -135,9 +133,9 @@ impl Scene {
         );
 
         let mut light_obj =
-            model::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
-        let light_model = model::Model {
-            meshes: vec![model::Mesh {
+            renderer::Model::load(&device, &queue, res_dir.join("cube").join("cube.obj")).unwrap();
+        let light_model = renderer::Model {
+            meshes: vec![renderer::Mesh {
                 geometry: light_obj.meshes.pop().unwrap().geometry,
                 material_id: None,
             }],
@@ -239,7 +237,6 @@ impl Scene {
 
         // create bind_groups for each model to render
         let bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
-        let brick_bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
