@@ -135,7 +135,7 @@ impl<'a> Scene {
             &config,
             &camera_binder,
             &light_binder,
-            include_str!("shader.wgsl").into(),
+            std::borrow::Cow::Borrowed(cube_object.shader_file),
             Some(instance_data),
             Some(instance_len),
         );
@@ -147,7 +147,7 @@ impl<'a> Scene {
             &config,
             &camera_binder,
             &light_binder,
-            include_str!("light.wgsl").into(),
+            std::borrow::Cow::Borrowed(light_object.shader_file),
             None,
             None,
         );
@@ -306,11 +306,11 @@ impl<'a> Lens<'a> {
         let mut lens_objects = Vec::new();
         lens_objects.push(LensObject {
             object: light_object,
-            shader_file: "light.wgsl",
+            shader_file: include_str!("light.wgsl").into(),
         });
         lens_objects.push(LensObject {
             object: cube_object,
-            shader_file: "shader.wgsl",
+            shader_file: include_str!("shader.wgsl").into(),
         });
 
         Lens { lens_objects }
