@@ -18,12 +18,7 @@ pub struct Light {
 }
 
 impl Light {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let light_uniform = LightUniform {
-            position: [2.0, 2.0, 2.0],
-            _padding: 0,
-            color: [1.0, 1.0, 1.0],
-        };
+    pub fn bind(device: &wgpu::Device, light_uniform: LightUniform) -> Self {
         // We'll want to update our lights position, so we use COPY_DST
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light VB"),

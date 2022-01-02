@@ -38,10 +38,13 @@ struct Scene {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    camera: camera::Camera,
     depth_texture: texture::Texture,
-    light: light::Light,
     mouse_pressed: bool,
+    // camera & light binders
+    camera_binder: camera::Camera,
+    light_binder: light::Light,
+    // models to draw
+    // renderers for each model to draw
     model_renderers: Vec<ModelRenderer>,
 }
 
@@ -114,10 +117,15 @@ impl Scene {
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         // create the camera
-        let camera = camera::Camera::new(&device, &config);
+        let camera_binder = camera::Camera::new(&device, &config);
 
         // create light bind_group_layout and bind group
-        let light = light::Light::new(&device);
+        let light_uniform = light::LightUniform {
+            position: [2.0, 2.0, 2.0],
+            _padding: 0,
+            color: [0.2, 0.5, 0.7],
+        };
+        let light_binder = light::Light::bind(&device, light_uniform);
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let (obj_models, obj_textures) =
@@ -127,8 +135,8 @@ impl Scene {
             obj_model,
             &device,
             &config,
-            &camera,
-            &light,
+            &camera_binder,
+            &light_binder,
             include_str!("shader.wgsl").into(),
             Some(instance_data),
             Some(instance_len),
@@ -151,8 +159,8 @@ impl Scene {
             light_model,
             &device,
             &config,
-            &camera,
-            &light,
+            &camera_binder,
+            &light_binder,
             include_str!("light.wgsl").into(),
             None,
             None,
@@ -168,17 +176,17 @@ impl Scene {
             queue,
             config,
             size,
-            camera,
             depth_texture,
-            light,
             mouse_pressed: false,
+            camera_binder,
+            light_binder,
             model_renderers,
         }
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.camera
+            self.camera_binder
                 .projection
                 .resize(new_size.width, new_size.height);
             self.size = new_size;
@@ -196,9 +204,12 @@ impl Scene {
                 virtual_keycode: Some(key),
                 state,
                 ..
-            }) => self.camera.camera_controller.process_keyboard(*key, *state),
+            }) => self
+                .camera_binder
+                .camera_controller
+                .process_keyboard(*key, *state),
             DeviceEvent::MouseWheel { delta, .. } => {
-                self.camera.camera_controller.process_scroll(delta);
+                self.camera_binder.camera_controller.process_scroll(delta);
                 true
             }
             DeviceEvent::Button {
@@ -210,7 +221,7 @@ impl Scene {
             }
             DeviceEvent::MouseMotion { delta } => {
                 if self.mouse_pressed {
-                    self.camera
+                    self.camera_binder
                         .camera_controller
                         .process_mouse(delta.0, delta.1);
                 }
@@ -222,10 +233,10 @@ impl Scene {
 
     fn update(&mut self, dt: std::time::Duration) {
         // update camera position
-        self.camera.update(&self.queue, dt);
+        self.camera_binder.update(&self.queue, dt);
 
         // Update the light
-        self.light.update(&self.queue, dt);
+        self.light_binder.update(&self.queue, dt);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -240,7 +251,10 @@ impl Scene {
             });
 
         // create bind_groups for each model to render
-        let bind_groups = &[&self.camera.bind_group, &self.light.bind_group];
+        let bind_groups = &[
+            &self.camera_binder.bind_group,
+            &self.light_binder.bind_group,
+        ];
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
