@@ -1,6 +1,5 @@
 use crate::{camera, light, texture};
 use std::ops::Range;
-use std::path::Path;
 use tobj::*;
 use wgpu::util::DeviceExt;
 
@@ -130,10 +129,11 @@ pub struct Geometry {
 }
 
 impl Model {
-    pub fn load<P: AsRef<Path>>(
+    pub fn load(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        path: P,
+        obj_models: Vec<tobj::Model>,
+        textures: Vec<(image::DynamicImage, String, String)>,
     ) -> Result<Self, ()> {
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -164,36 +164,16 @@ impl Model {
             label: Some("material_bind_group_layout"),
         });
 
-        let (obj_models, obj_materials) = tobj::load_obj(
-            path.as_ref(),
-            &LoadOptions {
-                triangulate: true,
-                single_index: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        let obj_materials = obj_materials.unwrap();
-        // We're assuming that the texture files are stored with the obj file
-        let containing_folder = path.as_ref().parent().unwrap();
-
-        let mut obj_texture: Vec<(image::DynamicImage, std::path::PathBuf)> = Vec::new();
-        for mat in obj_materials.clone() {
-            let diffuse_path = mat.diffuse_texture;
-            let path = containing_folder.join(diffuse_path);
-            let path_copy = path.to_path_buf();
-            let img = image::open(path).unwrap();
-
-            obj_texture.push((img, path_copy));
-        }
-
         let mut materials = Vec::new();
-        let mut obj_texture_iter = obj_texture.iter();
-        for mat in obj_materials {
-            let (img, path_copy) = obj_texture_iter.next().unwrap();
-            let label = path_copy.to_str();
-            let diffuse_texture = texture::Texture::from_image(device, queue, img, label).unwrap();
+        for texture in textures.iter() {
+            let (diffuse_img, diffuse_label, name) = texture;
+            let diffuse_texture = texture::Texture::from_image(
+                device,
+                queue,
+                diffuse_img,
+                Some(diffuse_label.as_str()),
+            )
+            .unwrap();
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &material_layout,
@@ -210,8 +190,10 @@ impl Model {
                 label: None,
             });
 
+            let material_name = name.clone();
+
             materials.push(Material {
-                name: mat.name,
+                name: material_name,
                 diffuse_texture,
                 bind_group,
             });
@@ -237,12 +219,12 @@ impl Model {
             }
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Vertex Buffer", path.as_ref())),
+                label: Some(&format!("{:?} Vertex Buffer", &m.name)),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
             let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Index Buffer", path.as_ref())),
+                label: Some(&format!("{:?} Index Buffer", &m.name)),
                 contents: bytemuck::cast_slice(&m.mesh.indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
