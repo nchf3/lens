@@ -128,10 +128,9 @@ impl Scene {
         let light_binder = light::Light::bind(&device, light_uniform);
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let (obj_models, obj_textures) =
-            object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        let cube_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
         let obj_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, obj_models, Some(obj_textures)).unwrap(),
+            renderer::Model::load(&device, &queue, cube_object).unwrap(),
             &device,
             &config,
             &camera_binder,
@@ -141,9 +140,10 @@ impl Scene {
             Some(instance_len),
         );
 
-        let (light_models, _) = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        let mut light_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        light_object.textures = None;
         let light_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, light_models, None).unwrap(),
+            renderer::Model::load(&device, &queue, light_object).unwrap(),
             &device,
             &config,
             &camera_binder,

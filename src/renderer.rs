@@ -1,6 +1,5 @@
-use crate::{camera, light, texture};
+use crate::{camera, light, object, texture};
 use std::ops::Range;
-use tobj::*;
 use wgpu::util::DeviceExt;
 
 pub trait Vertex {
@@ -132,9 +131,10 @@ impl Model {
     pub fn load(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        obj_models: Vec<tobj::Model>,
-        textures: Option<Vec<(image::DynamicImage, String, String)>>,
+        object: object::Object,
     ) -> Result<Self, ()> {
+        let (obj_models, textures) = (object.models, object.textures);
+
         let mut material_flag = false;
 
         let material_layout = if let Some(_) = &textures {

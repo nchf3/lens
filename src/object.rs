@@ -1,12 +1,13 @@
 use std::path::Path;
 use tobj::*;
 
-pub struct Object {}
+pub struct Object {
+    pub models: Vec<Model>,
+    pub textures: Option<Vec<(image::DynamicImage, String, String)>>,
+}
 
 impl Object {
-    pub fn load_from<P: AsRef<Path>>(
-        path: P,
-    ) -> (Vec<Model>, Vec<(image::DynamicImage, String, String)>) {
+    pub fn load_from<P: AsRef<Path>>(path: P) -> Object {
         let (obj_models, obj_materials) = tobj::load_obj(
             path.as_ref(),
             &LoadOptions {
@@ -31,6 +32,9 @@ impl Object {
             textures.push((img, diffuse_path, name));
         }
 
-        (obj_models, textures)
+        Object {
+            models: obj_models,
+            textures: Some(textures),
+        }
     }
 }
