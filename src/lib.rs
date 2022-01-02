@@ -5,6 +5,7 @@ mod renderer;
 mod texture;
 
 use cgmath::prelude::*;
+use object::Object;
 use renderer::{DrawModel, InstanceRaw, ModelRenderer};
 use winit::{
     dpi::PhysicalPosition,
@@ -48,9 +49,9 @@ struct Scene {
     model_renderers: Vec<ModelRenderer>,
 }
 
-impl Scene {
+impl<'a> Scene {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> Scene {
+    async fn new(window: &Window, lens_objects: &mut Vec<LensObject<'a>>) -> Scene {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -127,10 +128,9 @@ impl Scene {
         };
         let light_binder = light::Light::bind(&device, light_uniform);
 
-        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let cube_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        let cube_object = lens_objects.pop().unwrap();
         let obj_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, cube_object).unwrap(),
+            renderer::Model::load(&device, &queue, cube_object.object).unwrap(),
             &device,
             &config,
             &camera_binder,
@@ -140,10 +140,9 @@ impl Scene {
             Some(instance_len),
         );
 
-        let mut light_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
-        light_object.textures = None;
+        let light_object = lens_objects.pop().unwrap();
         let light_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, light_object).unwrap(),
+            renderer::Model::load(&device, &queue, light_object.object).unwrap(),
             &device,
             &config,
             &camera_binder,
@@ -284,21 +283,47 @@ impl Scene {
     }
 }
 
-pub struct Lens {
-    // add a light
-// add a camera
-// add meshes
+struct LensObject<'a> {
+    object: Object,
+    shader_file: &'a str,
 }
 
-impl Lens {
-    pub fn run() {
+pub struct Lens<'a> {
+    // add a light
+    // add a camera
+    // add meshes
+    lens_objects: Vec<LensObject<'a>>,
+}
+
+impl<'a> Lens<'a> {
+    pub fn new() -> Lens<'a> {
+        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        let cube_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+
+        let mut light_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        light_object.textures = None;
+
+        let mut lens_objects = Vec::new();
+        lens_objects.push(LensObject {
+            object: light_object,
+            shader_file: "light.wgsl",
+        });
+        lens_objects.push(LensObject {
+            object: cube_object,
+            shader_file: "shader.wgsl",
+        });
+
+        Lens { lens_objects }
+    }
+
+    pub fn run(&mut self) {
         env_logger::init();
         let mut last_render_time = std::time::Instant::now();
 
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
         // Scene::new uses async code, so we're going to wait for it to finish
-        let mut scene = pollster::block_on(Scene::new(&window));
+        let mut scene = pollster::block_on(Scene::new(&window, &mut self.lens_objects));
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll;
