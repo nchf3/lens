@@ -23,7 +23,7 @@ impl Object {
         let containing_folder = path.as_ref().parent().unwrap();
 
         let mut textures: Vec<(image::DynamicImage, String, String)> = Vec::new();
-        for mat in obj_materials.clone() {
+        for mat in obj_materials {
             let diffuse_path = mat.diffuse_texture;
             let path = containing_folder.join(diffuse_path.clone());
             let img = image::open(path).unwrap();
