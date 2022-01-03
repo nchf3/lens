@@ -1,7 +1,5 @@
-use crate::{camera, light, texture};
+use crate::{camera, light, object, texture};
 use std::ops::Range;
-use std::path::Path;
-use tobj::*;
 use wgpu::util::DeviceExt;
 
 pub trait Vertex {
@@ -130,83 +128,93 @@ pub struct Geometry {
 }
 
 impl Model {
-    pub fn load<P: AsRef<Path>>(
+    pub fn load(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        path: P,
+        object: object::Object,
     ) -> Result<Self, ()> {
-        let (obj_models, obj_materials) = tobj::load_obj(
-            path.as_ref(),
-            &LoadOptions {
-                triangulate: true,
-                single_index: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let (obj_models, textures) = (object.models, object.textures);
 
-        let obj_materials = obj_materials.unwrap();
+        let mut material_flag = false;
 
-        // We're assuming that the texture files are stored with the obj file
-        let containing_folder = path.as_ref().parent().unwrap();
+        let material_layout = if let Some(_) = &textures {
+            material_flag = true;
 
-        let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        // This is only for TextureSampleType::Depth
-                        comparison: false,
-                        // This should be true if the sample_type of the texture is:
-                        //     TextureSampleType::Float { filterable: true }
-                        // Otherwise you'll get an error.
-                        filtering: true,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("material_bind_group_layout"),
-        });
+            let material_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                multisampled: false,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler {
+                                // This is only for TextureSampleType::Depth
+                                comparison: false,
+                                // This should be true if the sample_type of the texture is:
+                                //     TextureSampleType::Float { filterable: true }
+                                // Otherwise you'll get an error.
+                                filtering: true,
+                            },
+                            count: None,
+                        },
+                    ],
+                    label: Some("material_bind_group_layout"),
+                });
 
-        let mut materials = Vec::new();
-        for mat in obj_materials {
-            let diffuse_path = mat.diffuse_texture;
-            let diffuse_texture =
-                texture::Texture::load(device, queue, containing_folder.join(diffuse_path))
-                    .unwrap();
+            Some(material_layout)
+        } else {
+            None
+        };
 
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &material_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                    },
-                ],
-                label: None,
-            });
+        let materials = if let Some(material_textures) = textures {
+            let mut materials = Vec::new();
+            for texture in material_textures.iter() {
+                let (diffuse_img, diffuse_label, name) = texture;
+                let diffuse_texture = texture::Texture::from_image(
+                    device,
+                    queue,
+                    diffuse_img,
+                    Some(diffuse_label.as_str()),
+                )
+                .unwrap();
 
-            materials.push(Material {
-                name: mat.name,
-                diffuse_texture,
-                bind_group,
-            });
-        }
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &material_layout.as_ref().unwrap(),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                        },
+                    ],
+                    label: None,
+                });
+
+                let material_name = name.clone();
+
+                materials.push(Material {
+                    name: material_name,
+                    diffuse_texture,
+                    bind_group,
+                });
+            }
+
+            Some(materials)
+        } else {
+            None
+        };
 
         let mut meshes = Vec::new();
         for m in obj_models {
@@ -228,12 +236,12 @@ impl Model {
             }
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Vertex Buffer", path.as_ref())),
+                label: Some(&format!("{:?} Vertex Buffer", &m.name)),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
             let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Index Buffer", path.as_ref())),
+                label: Some(&format!("{:?} Index Buffer", &m.name)),
                 contents: bytemuck::cast_slice(&m.mesh.indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
@@ -245,16 +253,23 @@ impl Model {
                 num_elements: m.mesh.indices.len() as u32,
             };
 
-            meshes.push(Mesh {
-                geometry: geometry,
-                material_id: Some(m.mesh.material_id.unwrap_or(0)),
-            });
+            if material_flag {
+                meshes.push(Mesh {
+                    geometry: geometry,
+                    material_id: Some(m.mesh.material_id.unwrap_or(0)),
+                });
+            } else {
+                meshes.push(Mesh {
+                    geometry: geometry,
+                    material_id: None,
+                });
+            }
         }
 
         Ok(Self {
             meshes: meshes,
-            materials: Some(materials),
-            material_layout: Some(material_layout),
+            materials: materials,
+            material_layout: material_layout,
         })
     }
 }

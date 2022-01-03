@@ -86,7 +86,7 @@ impl Texture {
         let path_copy = path.as_ref().to_path_buf();
         let label = path_copy.to_str();
 
-        let img = image::open(path)?;
+        let img = image::open(path).unwrap();
         Self::from_image(device, queue, &img, label)
     }
 
