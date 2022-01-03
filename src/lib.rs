@@ -4,9 +4,9 @@ mod object;
 mod renderer;
 mod texture;
 
-use cgmath::prelude::*;
-use object::Object;
-use renderer::{DrawModel, InstanceRaw, ModelRenderer};
+pub use object::Object;
+pub use renderer::InstanceRaw;
+use renderer::{DrawModel, ModelRenderer};
 use winit::{
     dpi::PhysicalPosition,
     event::*,
@@ -14,24 +14,6 @@ use winit::{
     window::Window,
     window::WindowBuilder,
 };
-
-const NUM_INSTANCES_PER_ROW: u32 = 10;
-
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        let model =
-            cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation);
-        InstanceRaw {
-            model: model.into(),
-            normal: cgmath::Matrix3::from(self.rotation).into(),
-        }
-    }
-}
 
 struct Scene {
     surface: wgpu::Surface,
@@ -251,10 +233,10 @@ impl<'a> Scene {
     }
 }
 
-struct LensObject<'a> {
-    object: Object,
-    shader_file: &'a str,
-    instances: Option<(Vec<InstanceRaw>, usize)>,
+pub struct LensObject<'a> {
+    pub object: Object,
+    pub shader_file: &'a str,
+    pub instances: Option<(Vec<InstanceRaw>, usize)>,
 }
 
 pub struct Lens<'a> {
@@ -266,51 +248,13 @@ pub struct Lens<'a> {
 
 impl<'a> Lens<'a> {
     pub fn new() -> Lens<'a> {
-        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
-        let cube_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
+        Lens {
+            lens_objects: Vec::new(),
+        }
+    }
 
-        let mut light_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
-        light_object.textures = None;
-
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                    let position = cgmath::Vector3 { x, y: 0.0, z };
-
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_len = instance_data.len();
-
-        let mut lens_objects = Vec::new();
-        lens_objects.push(LensObject {
-            object: light_object,
-            shader_file: include_str!("light.wgsl").into(),
-            instances: None,
-        });
-        lens_objects.push(LensObject {
-            object: cube_object,
-            shader_file: include_str!("shader.wgsl").into(),
-            instances: Some((instance_data, instance_len)),
-        });
-
-        Lens { lens_objects }
+    pub fn add_object(&mut self, lens_object: LensObject<'a>) {
+        self.lens_objects.push(lens_object);
     }
 
     pub fn run(&mut self) {
@@ -380,8 +324,4 @@ impl<'a> Lens<'a> {
             }
         });
     }
-}
-
-pub fn hello_from_lens() {
-    println!("Hello from lens.");
 }
