@@ -88,32 +88,6 @@ impl<'a> Scene {
         };
         surface.configure(&device, &config);
 
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                    let position = cgmath::Vector3 { x, y: 0.0, z };
-
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_len = instance_data.len();
-
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -128,33 +102,27 @@ impl<'a> Scene {
         };
         let light_binder = light::Light::bind(&device, light_uniform);
 
-        let cube_object = lens_objects.pop().unwrap();
-        let obj_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, cube_object.object).unwrap(),
-            &device,
-            &config,
-            &camera_binder,
-            &light_binder,
-            std::borrow::Cow::Borrowed(cube_object.shader_file),
-            Some(instance_data),
-            Some(instance_len),
-        );
-
-        let light_object = lens_objects.pop().unwrap();
-        let light_renderer = ModelRenderer::new_renderer(
-            renderer::Model::load(&device, &queue, light_object.object).unwrap(),
-            &device,
-            &config,
-            &camera_binder,
-            &light_binder,
-            std::borrow::Cow::Borrowed(light_object.shader_file),
-            None,
-            None,
-        );
-
         let mut model_renderers = Vec::new();
-        model_renderers.push(light_renderer);
-        model_renderers.push(obj_renderer);
+        for _ in 0..lens_objects.len() {
+            let object = lens_objects.pop().unwrap();
+            let (instances_data, instances_len) =
+                if let Some((data, len)) = object.instances.clone() {
+                    (Some(data.clone()), Some(len.clone()))
+                } else {
+                    (None, None)
+                };
+            let cube_renderer = ModelRenderer::new_renderer(
+                renderer::Model::load(&device, &queue, object.object).unwrap(),
+                &device,
+                &config,
+                &camera_binder,
+                &light_binder,
+                std::borrow::Cow::Borrowed(object.shader_file),
+                instances_data,
+                instances_len,
+            );
+            model_renderers.push(cube_renderer);
+        }
 
         Self {
             surface,
@@ -272,7 +240,7 @@ impl<'a> Scene {
             });
 
             for renderer in &self.model_renderers {
-                render_pass.draw_model(&renderer, bind_groups);
+                render_pass.draw_model(renderer, bind_groups);
             }
         }
         // submit will accept anything that implements IntoIter
@@ -286,6 +254,7 @@ impl<'a> Scene {
 struct LensObject<'a> {
     object: Object,
     shader_file: &'a str,
+    instances: Option<(Vec<InstanceRaw>, usize)>,
 }
 
 pub struct Lens<'a> {
@@ -303,14 +272,42 @@ impl<'a> Lens<'a> {
         let mut light_object = object::Object::load_from(res_dir.join("cube").join("cube.obj"));
         light_object.textures = None;
 
+        const SPACE_BETWEEN: f32 = 3.0;
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+
+                    let position = cgmath::Vector3 { x, y: 0.0, z };
+
+                    let rotation = if position.is_zero() {
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_len = instance_data.len();
+
         let mut lens_objects = Vec::new();
         lens_objects.push(LensObject {
             object: light_object,
             shader_file: include_str!("light.wgsl").into(),
+            instances: None,
         });
         lens_objects.push(LensObject {
             object: cube_object,
             shader_file: include_str!("shader.wgsl").into(),
+            instances: Some((instance_data, instance_len)),
         });
 
         Lens { lens_objects }
