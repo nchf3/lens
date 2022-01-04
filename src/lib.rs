@@ -235,6 +235,8 @@ impl<'a> Scene {
 
 pub struct LensObject<'a> {
     pub object: Object,
+    pub position: cgmath::Vector3<f32>,
+    pub transform: Option<cgmath::Matrix4<f32>>,
     pub shader_file: &'a str,
     pub instances: Option<(Vec<InstanceRaw>, usize)>,
 }
