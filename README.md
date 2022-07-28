@@ -1,12 +1,12 @@
-# lens
+# Lens
 
 A 3D renderer front-end for WebGPU
 
-# summary
+# Summary
 
 Lens is a project to play with webgpu api and try to understand how complex 3D renderers work.
 
-# how to use it
+# How to use it
 
 Create a new scene :
 
